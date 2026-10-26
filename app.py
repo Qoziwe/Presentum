@@ -16,7 +16,8 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "insecure-dev-secret-key-change-me")
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///database.db")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.config["MAX_CONTENT_LENGTH"] = 150 * 1024 * 1024  # Лимит 150 МБ для больших PDF/изображений
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"connect_args": {"timeout": 15}}
+app.config["MAX_CONTENT_LENGTH"] = 150 * 1024 * 1024
 
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
 
@@ -24,6 +25,7 @@ db.init_app(app)
 socketio = SocketIO(
     app,
     cors_allowed_origins="*",
+    async_mode="threading",
     ping_interval=25,
     ping_timeout=60
 )
@@ -44,7 +46,6 @@ def login_required(f):
 
 
 def get_state_payload():
-    """Формирует текущее состояние презентации для отдачи клиентам."""
     slides = Slide.query.order_by(Slide.order_index).all()
     total = len(slides)
     state = PresentationState.get_current()
@@ -81,13 +82,12 @@ def get_state_payload():
 
 
 def broadcast_state():
-    """Шлёт актуальное состояние всем подключённым клиентам."""
     payload = get_state_payload()
     socketio.emit("slide_state", payload)
     return payload
 
 
-# --- Публичные маршруты ---
+# --- Маршруты ---
 
 @app.route("/")
 def index():
@@ -98,15 +98,14 @@ def index():
 
 @app.route("/presentation")
 def presentation_view():
-    return render_template("presentation.html")
+    payload = get_state_payload()
+    return render_template("presentation.html", state=payload)
 
 
 @app.route("/api/state")
 def api_state():
     return jsonify(get_state_payload())
 
-
-# --- Авторизация ---
 
 @app.route("/admin/login", methods=["GET", "POST"])
 def admin_login():
@@ -131,8 +130,6 @@ def admin_logout():
     return redirect(url_for("admin_login"))
 
 
-# --- Админ-панель и Пульт ---
-
 @app.route("/admin")
 @login_required
 def admin_dashboard():
@@ -147,8 +144,6 @@ def admin_control():
     payload = get_state_payload()
     return render_template("control.html", state=payload)
 
-
-# --- REST API управления слайдами (только для админа) ---
 
 @app.route("/admin/api/upload", methods=["POST"])
 @login_required

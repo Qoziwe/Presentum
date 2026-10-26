@@ -57,7 +57,7 @@
         <button id="btn-next" class="nav-btn btn-next" aria-label="Следующий слайд">▶</button>
     </div>
 
-    <script src="/socket.io/socket.io.js"></script>
+    <script src="/static/js/socket.io.min.js"></script>
     <script>
         var socket = io({ transports: ["websocket", "polling"] });
         var currentIdx = {{ state.current_index }};
@@ -113,7 +113,10 @@
             if (socket && socket.connected) {
                 socket.emit("admin_" + action);
             } else {
-                fetch("/admin/api/control/" + action, { method: "POST" });
+                fetch("/admin/api/control/" + action, {
+                    method: "POST",
+                    headers: { "X-Requested-With": "XMLHttpRequest" }
+                });
             }
         }
 

@@ -186,8 +186,13 @@ def admin_clear_all():
 @login_required
 def admin_control_action(action):
     slides_count = Slide.query.count()
+    is_ajax = (request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.is_json)
+
     if slides_count == 0:
-        return jsonify({"success": False, "error": "Нет слайдов"}), 400
+        if is_ajax:
+            return jsonify({"success": False, "error": "Нет слайдов"}), 400
+        flash("Нет слайдов для показа", "error")
+        return redirect(url_for("admin_dashboard"))
 
     state = PresentationState.get_current()
     if action == "next":
@@ -205,7 +210,9 @@ def admin_control_action(action):
             db.session.commit()
 
     payload = broadcast_state()
-    return jsonify({"success": True, "state": payload})
+    if is_ajax:
+        return jsonify({"success": True, "state": payload})
+    return redirect(url_for("admin_dashboard"))
 
 
 # --- WebSocket события ---

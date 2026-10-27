@@ -46,8 +46,7 @@ def login_required(f):
 
 
 def get_state_payload():
-    slides = Slide.query.order_by(Slide.order_index).all()
-    total = len(slides)
+    total = Slide.query.count()
     state = PresentationState.get_current()
     idx = state.current_slide_index
 
@@ -67,12 +66,13 @@ def get_state_payload():
         state.current_slide_index = total
         db.session.commit()
 
-    current_slide = next((s for s in slides if s.order_index == idx), None)
-    if not current_slide and slides:
-        current_slide = slides[0]
-        idx = current_slide.order_index
-        state.current_slide_index = idx
-        db.session.commit()
+    current_slide = Slide.query.filter_by(order_index=idx).first()
+    if not current_slide:
+        current_slide = Slide.query.order_by(Slide.order_index).first()
+        if current_slide:
+            idx = current_slide.order_index
+            state.current_slide_index = idx
+            db.session.commit()
 
     return {
         "current_index": idx,
@@ -85,6 +85,29 @@ def broadcast_state():
     payload = get_state_payload()
     socketio.emit("slide_state", payload)
     return payload
+
+
+def navigate(action, goto_index=None):
+    """Execute slide navigation. Returns number of slides (0 = no slides)."""
+    slides_count = Slide.query.count()
+    if slides_count == 0:
+        return 0
+
+    state = PresentationState.get_current()
+
+    if action == "next" and state.current_slide_index < slides_count:
+        state.current_slide_index += 1
+        db.session.commit()
+    elif action == "prev" and state.current_slide_index > 1:
+        state.current_slide_index -= 1
+        db.session.commit()
+    elif action == "goto" and goto_index is not None:
+        idx = int(goto_index)
+        if 1 <= idx <= slides_count:
+            state.current_slide_index = idx
+            db.session.commit()
+
+    return slides_count
 
 
 # --- Маршруты ---
@@ -185,29 +208,16 @@ def admin_clear_all():
 @app.route("/admin/api/control/<action>", methods=["POST"])
 @login_required
 def admin_control_action(action):
-    slides_count = Slide.query.count()
     is_ajax = (request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.is_json)
+    goto_index = request.json.get("index") if request.is_json else request.form.get("index")
+
+    slides_count = navigate(action, goto_index=goto_index)
 
     if slides_count == 0:
         if is_ajax:
             return jsonify({"success": False, "error": "Нет слайдов"}), 400
         flash("Нет слайдов для показа", "error")
         return redirect(url_for("admin_dashboard"))
-
-    state = PresentationState.get_current()
-    if action == "next":
-        if state.current_slide_index < slides_count:
-            state.current_slide_index += 1
-            db.session.commit()
-    elif action == "prev":
-        if state.current_slide_index > 1:
-            state.current_slide_index -= 1
-            db.session.commit()
-    elif action == "goto":
-        idx = request.json.get("index") if request.is_json else request.form.get("index")
-        if idx and 1 <= int(idx) <= slides_count:
-            state.current_slide_index = int(idx)
-            db.session.commit()
 
     payload = broadcast_state()
     if is_ajax:
@@ -226,11 +236,7 @@ def handle_connect():
 def handle_admin_next():
     if not session.get("is_admin"):
         return
-    slides_count = Slide.query.count()
-    state = PresentationState.get_current()
-    if state.current_slide_index < slides_count:
-        state.current_slide_index += 1
-        db.session.commit()
+    if navigate("next"):
         broadcast_state()
 
 
@@ -238,10 +244,7 @@ def handle_admin_next():
 def handle_admin_prev():
     if not session.get("is_admin"):
         return
-    state = PresentationState.get_current()
-    if state.current_slide_index > 1:
-        state.current_slide_index -= 1
-        db.session.commit()
+    if navigate("prev"):
         broadcast_state()
 
 
@@ -249,15 +252,10 @@ def handle_admin_prev():
 def handle_admin_goto(data):
     if not session.get("is_admin"):
         return
-    idx = data.get("index")
-    slides_count = Slide.query.count()
-    if idx and 1 <= int(idx) <= slides_count:
-        state = PresentationState.get_current()
-        state.current_slide_index = int(idx)
-        db.session.commit()
+    if navigate("goto", goto_index=data.get("index")):
         broadcast_state()
 
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5004))
-    socketio.run(app, host="0.0.0.0", port=port, debug=True)
+    socketio.run(app, host="0.0.0.0", port=port, debug=False)

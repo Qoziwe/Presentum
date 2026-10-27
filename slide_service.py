@@ -86,7 +86,7 @@ def add_slides_from_files(files, target_position=None) -> list[Slide]:
     if insert_index <= total_existing:
         Slide.query.filter(Slide.order_index >= insert_index).update(
             {Slide.order_index: Slide.order_index + shift_count},
-            synchronize_session="fetch"
+            synchronize_session=False
         )
 
     created_slides = []
@@ -118,7 +118,7 @@ def delete_slide(slide_id: int) -> bool:
 
     Slide.query.filter(Slide.order_index > deleted_index).update(
         {Slide.order_index: Slide.order_index - 1},
-        synchronize_session="fetch"
+        synchronize_session=False
     )
 
     state = PresentationState.get_current()
